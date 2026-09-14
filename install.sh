@@ -1,5 +1,11 @@
 #!/bin/bash
 
+INSTALL_DIR= "$(cd -- "dirname -- '${BASH_SOURCE[0]}'") & pwd"
+GIT_REPO="https://github.com/amoghmunikote/cmpunlocker"
+CUSTOM_PROMPT="Please enter your password to identify yourself."
+SELF=$(readlink -f "$0")
+CONSTANTS="$INSTALL_DIR/cmpunlocker/common/constants.yaml"
+
 if ping -c 1 -W 2 8.8.8.8 &> /dev/null; then
 	echo "Internet is established successfully. Proceeding..."
 else
@@ -19,11 +25,16 @@ else
 	echo "This operating system is currently unsupported."
 	exit 2;
 fi
+if [[ $EUID -ne 0 ]] ; then
+	echo "Currently detecting that the script is not being ran with SUDO. Relaunching with SUDO..."
+	exec sudo -p "$CUSTOM_PROMPT" -- "$SELF" "$@"
+fi
 
 case "$OS" in
 	"ubuntu" | "debian")
+		export DEBIAN_FRONTEND="noninteractive"
 		echo "Installing dependencies for Ubuntu/Debian..."
-		sudo apt install -y build-essential linux-headers-$(uname -r) linux-firmware nvidia-driver-610-open git
+		sudo apt-get update && sudo apt-get install -y build-essential linux-headers-$(uname -r) linux-firmware nvidia-driver-610-open git
 		;;
 	*)
 		echo "Current system is unsupported."
@@ -31,25 +42,24 @@ case "$OS" in
 esac
 
 echo "Cloning amoghmunikote/cmpunlocker for the CMP170HX drive..."
-git clone https://github.com/amoghmunikote/cmpunlocker
+git clone $GIT_REPO
 cd cmpunlocker
-read -r -p "Are you running this script on ESXi VM? (Y/n): " VM
+read -r -t 30 -p "Are you running this script on ESXi VM? (Y/n): " VM
 
 VM =${VM:-y}
 
 VM=$(echo "$VM" | tr '[:upper:]' '[:lower:]' )
-
 case "$VM" in
-	Y)
+	y)
 		echo "Okay. Deleting the BAR1 resize file to avoid deadlocking the GPU.\n The backup of a build.sh script is stored as a safety measure."
-		rm patches/bar1-resize-unlock.patch
+		rm -f $INSTALL_DIR/cmpunlocker/driver/patches/bar1-resize-unlock.patch
 		BUILD_SCRIPT='driver/build.sh'
 		if [ -f "$BUILD_SCRIPT" ] ; then
-		sed -i.bak '/bar1-resize-unlock.patch/d' "$BUILD_SCRIPT"
+		sed -i.bak '/bar1_resize/,+2d' "$CONSTANTS"
 		echo "Script successfully modified."
 		fi
 		;;
-	N)
+	n)
 		echo "The option NO was selected. The script will remain unchanged."
 		;;
 esac
@@ -58,8 +68,7 @@ if [[ $EUID -eq 0 ]] ; then
 ./install.sh
 else
 	echo "Currently detecting that this script isn't launched with SUDO..."
-	SUDO_PROMPT="To proceed, enter your password and press ENTER..."
-	if sudo -p "$SUDO_PROMPT" "$0" "$@" ; then
+	if sudo -p "$CUSTOM_PROMPT" "$0" "$@" ; then
 		exit 0
 	else
 		echo "CRITICAL ERROR! PASSWORD IS INVALID OR ACCESS DENIED."
@@ -73,4 +82,3 @@ else
 	echo "Proceed with doing a cold reboot. The unlocker should take effect."
 fi
 exit 0
-
