@@ -1,6 +1,6 @@
 #!/bin/bash
 
-INSTALL_DIR= "$(cd -- "dirname -- '${BASH_SOURCE[0]}'") & pwd"
+INSTALL_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 GIT_REPO="https://github.com/amoghmunikote/cmpunlocker"
 CUSTOM_PROMPT="Please enter your password to identify yourself."
 SELF=$(readlink -f "$0")
@@ -42,11 +42,12 @@ case "$OS" in
 esac
 
 echo "Cloning amoghmunikote/cmpunlocker for the CMP170HX drive..."
+sudo rm -rf  cmpunlocker
 git clone $GIT_REPO
 cd cmpunlocker
-read -r -t 30 -p "Are you running this script on ESXi VM? (Y/n): " VM
+read -r -t 30 -p "Are you running this script on ESXi VM? (y/n): " VM
 
-VM =${VM:-y}
+VM=${VM:-y}
 
 VM=$(echo "$VM" | tr '[:upper:]' '[:lower:]' )
 case "$VM" in
@@ -56,12 +57,16 @@ case "$VM" in
 		BUILD_SCRIPT='driver/build.sh'
 		if [ -f "$BUILD_SCRIPT" ] ; then
 		sed -i.bak '/bar1_resize/,+2d' "$CONSTANTS"
+		sed -i.bak '/bar1-resize/d' "$BUILD_SCRIPT"
 		echo "Script successfully modified."
 		fi
 		;;
 	n)
 		echo "The option NO was selected. The script will remain unchanged."
 		;;
+	*)
+		echo "Unknown error. Please try again later. If you've encountered this issue during prod usage, file an issue."
+		exit 7
 esac
 
 if [[ $EUID -eq 0 ]] ; then
@@ -69,13 +74,17 @@ if [[ $EUID -eq 0 ]] ; then
 else
 	echo "Currently detecting that this script isn't launched with SUDO..."
 	if sudo -p "$CUSTOM_PROMPT" "$0" "$@" ; then
-		exit 0
+		echo "Identification successful!"
 	else
 		echo "CRITICAL ERROR! PASSWORD IS INVALID OR ACCESS DENIED."
 		exit 5
 	fi
 fi
-echo "Congratulations! CMPUnlocker has been successfully installed."
+if [[ $? -eq 0 ]]; then
+	echo "There seems to have been some sort of a problem encountered while installing the cmpunlocker. Exit code is: $?"
+else
+	echo "Congratulations! CMPUnlocker has been successfully installed."
+fi
 if [[ $VM -eq "Y" ]] ; then
 	echo "Proceed by powering off your VM and then powering it on. The unlocker should take effect."
 else
