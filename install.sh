@@ -17,6 +17,7 @@ fi
 if [[ "$OSTYPE" == "darwin"* ]] ; then
 	echo "This program is only intended for Linux OSes"
 elif [ -f /etc/os-release ] ; then
+	# shellcheck source=/dev/null
 	. /etc/os-release
 	OS=$ID
 	echo "Successfully identified OS as $OS"
@@ -34,7 +35,7 @@ case "$OS" in
 	"ubuntu" | "debian")
 		export DEBIAN_FRONTEND="noninteractive"
 		echo "Installing dependencies for Ubuntu/Debian..."
-		sudo apt-get update && sudo apt-get install -y build-essential linux-headers-$(uname -r) linux-firmware nvidia-driver-610-open git
+		sudo apt-get update && sudo apt-get install -y build-essential "linux-headers-$(uname -r)" linux-firmware nvidia-driver-610-open git || exit 3
 		;;
 	*)
 		echo "Current system is unsupported."
@@ -42,9 +43,10 @@ case "$OS" in
 esac
 
 echo "Cloning amoghmunikote/cmpunlocker for the CMP170HX drive..."
-sudo rm -rf  cmpunlocker
-git clone $GIT_REPO
-cd cmpunlocker
+cd "$INSTALL_DIR" || exit 4
+sudo rm -rf cmpunlocker
+git clone "$GIT_REPO" || exit 4
+cd cmpunlocker || exit 4
 read -r -t 30 -p "Are you running this script on ESXi VM? (y/n): " VM
 
 VM=${VM:-y}
@@ -52,8 +54,9 @@ VM=${VM:-y}
 VM=$(echo "$VM" | tr '[:upper:]' '[:lower:]' )
 case "$VM" in
 	y)
-		echo "Okay. Deleting the BAR1 resize file to avoid deadlocking the GPU.\n The backup of a build.sh script is stored as a safety measure."
-		rm -f $INSTALL_DIR/cmpunlocker/driver/patches/bar1-resize-unlock.patch
+		echo "Okay. Deleting the BAR1 resize file to avoid deadlocking the GPU."
+		echo "Backups of build.sh and constants.yaml are kept as .bak files until the next run."
+		rm -f "$INSTALL_DIR/cmpunlocker/driver/patches/bar1-resize-unlock.patch"
 		BUILD_SCRIPT='driver/build.sh'
 		if [ -f "$BUILD_SCRIPT" ] ; then
 		sed -i.bak '/bar1_resize/,+2d' "$CONSTANTS"
@@ -69,23 +72,14 @@ case "$VM" in
 		exit 7
 esac
 
-if [[ $EUID -eq 0 ]] ; then
-./install.sh
-else
-	echo "Currently detecting that this script isn't launched with SUDO..."
-	if sudo -p "$CUSTOM_PROMPT" "$0" "$@" ; then
-		echo "Identification successful!"
-	else
-		echo "CRITICAL ERROR! PASSWORD IS INVALID OR ACCESS DENIED."
-		exit 5
-	fi
+./install.sh "$@"
+rc=$?
+if [[ $rc -ne 0 ]]; then
+	echo "There seems to have been some sort of a problem encountered while installing the cmpunlocker. Exit code is: $rc"
+	exit $rc
 fi
-if [[ $? -eq 0 ]]; then
-	echo "There seems to have been some sort of a problem encountered while installing the cmpunlocker. Exit code is: $?"
-else
-	echo "Congratulations! CMPUnlocker has been successfully installed."
-fi
-if [[ $VM -eq "Y" ]] ; then
+echo "Congratulations! CMPUnlocker has been successfully installed."
+if [[ $VM == "y" ]] ; then
 	echo "Proceed by powering off your VM and then powering it on. The unlocker should take effect."
 else
 	echo "Proceed with doing a cold reboot. The unlocker should take effect."
