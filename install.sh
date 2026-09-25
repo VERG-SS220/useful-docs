@@ -32,10 +32,16 @@ if [[ $EUID -ne 0 ]] ; then
 fi
 
 case "$OS" in
-	"ubuntu" | "debian")
+	"ubuntu")
 		export DEBIAN_FRONTEND="noninteractive"
-		echo "Installing dependencies for Ubuntu/Debian..."
+		echo "Installing dependencies for Ubuntu"
 		sudo apt-get update && sudo apt-get install -y build-essential "linux-headers-$(uname -r)" linux-firmware nvidia-driver-610-open git || exit 3
+		;;
+
+	"debian")
+		export DEBIAN_FRONTEND="noninteractive"
+		echo "Installing Dependencies for Debian"
+		sudo apt-get update && sudo apt-get install -y build-essential cuda-keyring nvidia-driver-pinning-610 nvidia-open firmware-linux linux-headers-$(uname -r)
 		;;
 	*)
 		echo "Current system is unsupported."
@@ -47,11 +53,22 @@ cd "$INSTALL_DIR" || exit 4
 sudo rm -rf cmpunlocker
 git clone "$GIT_REPO" || exit 4
 cd cmpunlocker || exit 4
-read -r -t 30 -p "Are you running this script on ESXi VM? (y/n): " VM
+VIRT=$(systemd-detect-virt 2>/dev/null)
+VIRT=${VIRT:-none}
+echo "Detected virtualization: $VIRT"
 
-VM=${VM:-y}
+if [[ "$VIRT" == "vmware" ]] ; then
+	while true ; do
+	read -r -t 30 -p "VMware detected. Are you running this script on an ESXi VM? (y/n): " VM
+	VM=${VM:-y}
+	VM=$(echo "$VM" | tr '[:upper:]' '[:lower:]' )
+	[[ "$VM" == "y" || "$VM" == "n" ]] && break
+	echo "INPUT INVALID. Answer either y or n."
+done
 
-VM=$(echo "$VM" | tr '[:upper:]' '[:lower:]' )
+else
+	VM="n"
+fi
 case "$VM" in
 	y)
 		echo "Okay. Deleting the BAR1 resize file to avoid deadlocking the GPU."
@@ -65,7 +82,12 @@ case "$VM" in
 		fi
 		;;
 	n)
-		echo "The option NO was selected. The script will remain unchanged."
+		if [[ $VIRT == "none" ]] ; then
+			echo "The script is ran in the native environment. Script will remain unchanged."
+		else
+			echo "The option NO was selected. The script will remain unchanged."
+		fi
+	
 		;;
 	*)
 		echo "Unknown error. Please try again later. If you've encountered this issue during prod usage, file an issue."
