@@ -1,5 +1,32 @@
 #!/bin/bash
 
+spin() {
+	local msg=$1; shift
+	local log; log=$(mktemp)
+	"$@" > "$log" 2>&1 &
+	local pid=$! frames='/|\-' i=0
+
+	tput civis 2>/dev/null
+	trap 'tput cnorm; kill $pid 2>/dev/null' INT TERM
+
+	while kill -0 "$pid" 2>/dev/null; do
+		printf '\r%s %s' "${frames:i++%${#frames}:1}" "$msg"
+		sleep 0.1
+	done
+	wait "$pid"; local rc=$?
+	tput cnorm 2>/dev/null
+	trap - INT TERM
+
+	if (( rc == 0 )); then
+		printf '\r\033[K[OK] %s\n' "$msg"
+		rm -f "$log"
+	else
+		printf '\r\033[K[FAIL] %s (exit %d), last lines of %s:\n' "$msg" "$rc" "$log"
+		tail -n 20 "$log"
+	fi
+	return $rc
+}
+
 INSTALL_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 GIT_REPO="https://github.com/amoghmunikote/cmpunlocker"
 CUSTOM_PROMPT="Please enter your password to identify yourself."
@@ -19,12 +46,20 @@ if [[ "$OSTYPE" == "darwin"* ]] ; then
 elif [ -f /etc/os-release ] ; then
 	# shellcheck source=/dev/null
 	. /etc/os-release
+	case "$ID" in
+		"ubuntu")
+			echo "Current OS is identified as Ubuntu. Proceeding..."
+			sleep 5
+			;;
+		"arch")
+			printf 'Ha. I see you use Arch... BTW.\nAlso sorry, but this OS is unsupported... YET\n'
+			exit 3
+			;;
+		*)
+			echo "Uh-oh! Current OS is $ID and it is NOT supported."
+			exit 3
+	esac
 	OS=$ID
-	echo "Successfully identified OS as $OS"
-else
-	OS="Unknown"
-	echo "This operating system is currently unsupported."
-	exit 2;
 fi
 if [[ $EUID -ne 0 ]] ; then
 	echo "Currently detecting that the script is not being ran with SUDO. Relaunching with SUDO..."
@@ -35,13 +70,11 @@ case "$OS" in
 	"ubuntu")
 		export DEBIAN_FRONTEND="noninteractive"
 		echo "Installing dependencies for Ubuntu"
-		sudo apt-get update && sudo apt-get install -y build-essential "linux-headers-$(uname -r)" linux-firmware nvidia-driver-610-open git || exit 3
-		;;
-
-	"debian")
-		export DEBIAN_FRONTEND="noninteractive"
-		echo "Installing Dependencies for Debian"
-		sudo apt-get update && sudo apt-get install -y build-essential cuda-keyring nvidia-driver-pinning-610 nvidia-open firmware-linux linux-headers-$(uname -r)
+		spin "Updating package lists" apt-get update || exit 3
+		spin "Installing build tools, headers, firmware, NVIDIA 610 driver and git" \
+			apt-get install -y build-essential "linux-headers-$(uname -r)" linux-firmware nvidia-driver-610-open git || exit 3
+		spin "Locking Linux Kernel and Linux Headers to avoid driver crash on subsequent reboots" \
+			apt-mark hold linux-generic linux-image-generic "linux-headers-$(uname -r)" || exit 3
 		;;
 	*)
 		echo "Current system is unsupported."
@@ -94,7 +127,7 @@ case "$VM" in
 		exit 7
 esac
 
-./install.sh "$@"
+spin "Installing CMPUnlocker..." ./install.sh "$@"
 rc=$?
 if [[ $rc -ne 0 ]]; then
 	echo "There seems to have been some sort of a problem encountered while installing the cmpunlocker. Exit code is: $rc"
